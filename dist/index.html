@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>WebAR 金色粒子圣诞树</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* 隐藏的视频元素，用于计算机视觉处理 */
+        #input-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 320px;
+            height: 240px;
+            opacity: 0; 
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #FFD700;
+            font-size: 24px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #FFD700;
+            z-index: 20;
+            transition: opacity 0.5s;
+        }
+
+        .hud-top {
+            padding: 20px;
+            text-align: center;
+            color: rgba(255, 215, 0, 0.9);
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+
+        .hud-status {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .hud-instruction {
+            font-size: 14px;
+            color: #ccc;
+        }
+
+        #gesture-icon {
+            font-size: 40px;
+            display: block;
+            margin-top: 10px;
+            height: 50px;
+        }
+
+        /* 大图展示覆盖层 */
+        #overlay-image-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            width: 80%;
+            max-width: 500px;
+            aspect-ratio: 16/9;
+            background: #000;
+            border: 2px solid #FFD700;
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
+            border-radius: 15px;
+            overflow: hidden;
+            opacity: 0;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s;
+            z-index: 15;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #overlay-image-container.active {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+        }
+
+        #overlay-content {
+            color: #FFD700;
+            font-size: 20px;
+            text-align: center;
+        }
+        
+        .photo-placeholder {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, #1a1a1a, #333);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+
+        /* 调试窗口（可选，左下角） */
+        #debug-log {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: lime;
+            font-size: 12px;
+            font-family: monospace;
+            background: rgba(0,0,0,0.5);
+            padding: 5px;
+            max-width: 300px;
+            pointer-events: none;
+        }
+
+        /* 手势指示器 */
+        #gesture-indicator {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            pointer-events: none;
+        }
+
+        .gesture-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .gesture-dot.active {
+            background: #FFD700;
+            border-color: #FFD700;
+            box-shadow: 0 0 15px #FFD700;
+        }
+
+        /* 祝福动画容器 */
+        #blessing-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 25;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        #blessing-container.active {
+            opacity: 1;
+        }
+
+        .blessing-text {
+            font-size: 48px;
+            font-weight: bold;
+            color: #FFD700;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.8),
+                         0 0 40px rgba(255, 215, 0, 0.6),
+                         0 0 60px rgba(255, 215, 0, 0.4);
+            animation: blessingPulse 2s ease-in-out;
+            text-align: center;
+        }
+
+        @keyframes blessingPulse {
+            0% { transform: scale(0.5); opacity: 0; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); opacity: 0; }
+        }
+
+        /* 手势追踪光标 */
+        #hand-cursor {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 3px solid #FFD700;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 12;
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.1s ease-out;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        }
+
+        #hand-cursor.visible {
+            opacity: 1;
+        }
+
+        #hand-cursor.pinching {
+            transform: scale(0.6);
+            background: rgba(255, 215, 0, 0.5);
+        }
+
+        /* 音乐控制按钮 */
+        #music-btn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #FFD700;
+            color: #FFD700;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            pointer-events: auto;
+        }
+
+        #music-btn:hover {
+            background: rgba(255, 215, 0, 0.2);
+            transform: scale(1.1);
+        }
+
+        #music-btn.playing {
+            animation: musicPulse 1s ease-in-out infinite;
+        }
+
+        @keyframes musicPulse {
+            0%, 100% { box-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+            50% { box-shadow: 0 0 25px rgba(255, 215, 0, 0.8); }
+        }
+
+        /* 音乐提示 */
+        #music-hint {
+            position: absolute;
+            bottom: 80px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #FFD700;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        #music-btn:hover + #music-hint,
+        #music-hint.show {
+            opacity: 1;
+        }
+    </style>
+  <script type="module" crossorigin src="/assets/index-D8OnTxeA.js"></script>
+</head>
+<body>
+
+    <div id="loading">正在初始化 AR 引擎...<br><span style="font-size:14px; color:#ccc;">请允许使用摄像头</span></div>
+
+    <video id="input-video"></video>
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="hud-status" id="status-text"> </div>
+            <div class="hud-instruction" id="instruction-text"> </div>
+            <div id="gesture-icon"> </div>
+        </div>
+        <div id="debug-log">初始化...</div>
+    </div>
+
+    <!-- 捏合时展示的大图 -->
+    <div id="overlay-image-container">
+        <img id="overlay-image" src="" alt="Memory" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+    </div>
+
+    <!-- 手势追踪光标 -->
+    <div id="hand-cursor"></div>
+
+    <!-- 手势指示器 -->
+    <div id="gesture-indicator">
+        <div class="gesture-dot" id="dot-hand" title="手掌检测"></div>
+        <div class="gesture-dot" id="dot-move" title="移动控制"></div>
+        <div class="gesture-dot" id="dot-closed" title="闭合手势"></div>
+    </div>
+
+    <!-- 祝福动画 -->
+    <div id="blessing-container">
+        <div class="blessing-text" id="blessing-text"></div>
+    </div>
+
+    <!-- 音乐控制 -->
+    <button id="music-btn" title="播放/暂停音乐">🔇</button>
+    <div id="music-hint">点击播放圣诞音乐</div>
+
+    <!-- Application Entry Point -->
+</body>
+</html>
